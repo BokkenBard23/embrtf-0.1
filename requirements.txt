@@ -1,0 +1,10 @@
+# requirements.txt
+sentence-transformers
+faiss-cpu
+ollama
+striprtf
+tqdm
+numpy
+torch
+sqlite3
+requests
