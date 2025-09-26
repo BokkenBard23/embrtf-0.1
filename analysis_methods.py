@@ -10,7 +10,7 @@ import time
 import json
 
 # === Импорт для fast_phrase_classifier ===
-from classifier import classify_dialog_with_phrases
+from classifier import classify_dialog_with_phrases, load_phrase_dict
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
@@ -439,6 +439,12 @@ def callback_classifier(question, found_with_scores, chunk_size=1, status_callba
 
 # === БЫСТРЫЙ КЛАССИФИКАТОР НА ОСНОВЕ СЛОВАРЯ ===
 def fast_phrase_classifier(question, found_with_scores, chunk_size=1, status_callback=None):
+    phrase_dict = None
+    try:
+        phrase_dict = load_phrase_dict()
+    except Exception:
+        phrase_dict = None
+
     results = []
     for item, score in found_with_scores:
         # Извлекаем только реплики клиента из диалога
@@ -456,11 +462,11 @@ def fast_phrase_classifier(question, found_with_scores, chunk_size=1, status_cal
             clean_client_line = client_line.replace("Клиент:", "").replace("клиент:", "").strip()
             if clean_client_line:
                 # Ищем в словаре
-                if any(phrase in clean_client_line for phrase in phrase_dict["category_1_phrases"]["client"]):
+                if phrase_dict and any(phrase in clean_client_line for phrase in phrase_dict.get("category_1_phrases", {}).get("client", [])):
                     # Проверяем исключения
-                    if any(excl in clean_client_line for excl in phrase_dict["category_3_phrases"]["client"]):
+                    if any(excl in clean_client_line for excl in phrase_dict.get("category_3_phrases", {}).get("client", [])):
                         category = 3
-                    elif any(excl in clean_client_line for excl in phrase_dict["category_2_phrases"]["operator"]):
+                    elif any(excl in clean_client_line for excl in phrase_dict.get("category_2_phrases", {}).get("operator", [])):
                         category = 2
                     else:
                         category = 1

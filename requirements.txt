@@ -6,5 +6,4 @@ striprtf
 tqdm
 numpy
 torch
-sqlite3
 requests

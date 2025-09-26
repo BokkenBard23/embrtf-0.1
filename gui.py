@@ -15,7 +15,12 @@ from pathlib import Path
 
 # === Импорт конфигурации и утилит ===
 import config
-from utils import setup_logger
+from utils import setup_logger, get_db_connection
+
+# === Импорт рабочих модулей ===
+import pipeline
+import indexer
+import init_db
 
 # === Логирование ===
 logger = setup_logger('GUI', config.LOGS_ROOT / "gui.log")
@@ -43,7 +48,7 @@ CURRENT_THEME = "all"
 def init_chat_db():
     global CHAT_DB_CONN
     try:
-        CHAT_DB_CONN = sqlite3.connect(config.DATABASE_PATH, check_same_thread=False)
+        CHAT_DB_CONN = get_db_connection(check_same_thread=False)
         logger.info("✅ База данных для чата и QA подключена.")
     except Exception as e:
         logger.error(f"❌ Ошибка подключения к БД чата: {e}")
@@ -53,12 +58,14 @@ def init_chat_db():
 def load_models():
     global MODEL
     logger.info(f"Загрузка embedding-модели: {config.EMBEDDING_MODEL_NAME}")
-    MODEL = SentenceTransformer(config.EMBEDDING_MODEL_NAME, device="cpu")
+    MODEL = SentenceTransformer(config.EMBEDDING_MODEL_NAME, device=str("cuda" if config.EMBEDDING_MODEL_DEVICE == "cuda" else "cpu"))
     MODEL.max_seq_length = config.EMBEDDING_MODEL_MAX_LENGTH
 
 def load_faiss_indexes():
     global INDEXES, IDS
     logger.info("Загрузка FAISS-индексов...")
+    INDEXES = {}
+    IDS = {}
     conn = sqlite3.connect(config.DATABASE_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT theme, index_path, ids_path FROM faiss_indexes")
@@ -78,6 +85,7 @@ def load_faiss_indexes():
 def load_data_lookups():
     global DATA_LOOKUPS
     logger.info("Загрузка данных реплик и диалогов...")
+    DATA_LOOKUPS = {}
     conn = sqlite3.connect(config.DATABASE_PATH)
     cursor = conn.cursor()
     
@@ -98,6 +106,78 @@ def load_data_lookups():
     
     conn.close()
     logger.info(f"✅ Загружено {len(DATA_LOOKUPS)} реплик.")
+
+
+# === Утилиты UI ===
+def set_ui_busy(is_busy: bool):
+    ask_btn.config(state=tk.DISABLED if is_busy else tk.NORMAL)
+    btn_send.config(state=tk.DISABLED if is_busy else tk.NORMAL)
+    export_answer_btn.config(state=tk.DISABLED if is_busy else tk.NORMAL)
+    export_context_btn.config(state=tk.DISABLED if is_busy else tk.NORMAL)
+    btn_run_pipeline.config(state=tk.DISABLED if is_busy else tk.NORMAL)
+    btn_run_indexer.config(state=tk.DISABLED if is_busy else tk.NORMAL)
+    btn_reload_indexes.config(state=tk.DISABLED if is_busy else tk.NORMAL)
+
+
+# === Фоновые операции: pipeline / indexer / reload ===
+def run_pipeline_background():
+    def worker():
+        try:
+            set_ui_busy(True)
+            status_label.config(text="🚀 Обработка новых диалогов (pipeline)...")
+            root.update_idletasks()
+            init_db.init_db()
+            pipeline.process_thematic_folders()
+            status_label.config(text="✅ Обработка завершена. Запустите индексацию.")
+        except Exception as e:
+            logger.error(f"Ошибка pipeline: {e}")
+            messagebox.showerror("Pipeline", f"Ошибка обработки: {e}")
+        finally:
+            set_ui_busy(False)
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def run_indexer_background():
+    def worker():
+        try:
+            set_ui_busy(True)
+            status_label.config(text="🔧 Построение FAISS индексов...")
+            root.update_idletasks()
+            init_db.init_db()
+            indexer.main()
+            status_label.config(text="✅ Индексация завершена. Перезагружаю индексы...")
+            load_faiss_indexes()
+            load_data_lookups()
+            themes_for_combo = ["all"] + [t for t in INDEXES.keys() if t != "all"]
+            theme_menu['values'] = themes_for_combo
+            if themes_for_combo:
+                theme_var.set(themes_for_combo[0])
+            status_label.config(text="✅ Индексы обновлены.")
+        except Exception as e:
+            logger.error(f"Ошибка индексации: {e}")
+            messagebox.showerror("Индексация", f"Ошибка индексации: {e}")
+        finally:
+            set_ui_busy(False)
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def reload_indexes_and_data():
+    try:
+        set_ui_busy(True)
+        status_label.config(text="🔄 Перезагрузка индексов и данных...")
+        root.update_idletasks()
+        load_faiss_indexes()
+        load_data_lookups()
+        themes_for_combo = ["all"] + [t for t in INDEXES.keys() if t != "all"]
+        theme_menu['values'] = themes_for_combo
+        if themes_for_combo:
+            theme_var.set(themes_for_combo[0])
+        status_label.config(text="✅ Перезагрузка завершена.")
+    except Exception as e:
+        logger.error(f"Ошибка перезагрузки индексов/данных: {e}")
+        messagebox.showerror("Перезагрузка", f"Ошибка перезагрузки: {e}")
+    finally:
+        set_ui_busy(False)
 
 # === HyDE ===
 def generate_hypothetical_answer(query):
@@ -409,6 +489,17 @@ def create_gui():
     status_label = tk.Label(root, text="⏳ Загрузка...", bd=1, relief=tk.SUNKEN, anchor=tk.W, bg=dark_entry_bg, fg=dark_fg)
     status_label.pack(side=tk.BOTTOM, fill=tk.X)
 
+    # Панель данных/управления
+    controls_frame = tk.Frame(root, bg=dark_frame_bg)
+    controls_frame.pack(pady=(0, 5), padx=10, fill=tk.X)
+    global btn_run_pipeline, btn_run_indexer, btn_reload_indexes
+    btn_run_pipeline = tk.Button(controls_frame, text="Обработать новые (.rtf)", command=run_pipeline_background, bg=dark_button_bg, fg=dark_fg)
+    btn_run_pipeline.pack(side=tk.LEFT, padx=2)
+    btn_run_indexer = tk.Button(controls_frame, text="Переиндексировать (FAISS)", command=run_indexer_background, bg=dark_button_bg, fg=dark_fg)
+    btn_run_indexer.pack(side=tk.LEFT, padx=2)
+    btn_reload_indexes = tk.Button(controls_frame, text="Обновить индексы/данные", command=reload_indexes_and_data, bg=dark_button_bg, fg=dark_fg)
+    btn_reload_indexes.pack(side=tk.LEFT, padx=2)
+
     # Вкладки
     notebook = ttk.Notebook(root)
     notebook.pack(pady=10, padx=10, expand=True, fill=tk.BOTH)
@@ -439,6 +530,7 @@ def create_gui():
     # Загрузка
     def delayed_init():
         init_chat_db()
+        init_db.init_db()
         load_models()
         load_faiss_indexes()
         load_data_lookups()
@@ -451,6 +543,9 @@ def create_gui():
         export_answer_btn.config(state=tk.NORMAL)
         export_context_btn.config(state=tk.NORMAL)
         status_label.config(text="✅ Готов к работе.")
+        if not INDEXES:
+            if messagebox.askyesno("Индексы не найдены", "Не найдены индексы FAISS. Построить сейчас?"):
+                run_indexer_background()
 
     root.after(100, delayed_init)
     root.mainloop()

@@ -35,7 +35,7 @@ RERANKER_ENABLED = True
 
 ## Модель для LLM (Ollama)
 LLM_MODEL_NAME = "dimweb/ilyagusev-saiga_llama3_8b:kto_v5_Q4_K"
-LLM_API_URL = "http://localhost:11434/api/generate"  # URL Ollama API
+LLM_API_URL = os.getenv("LLM_API_URL", "http://localhost:11434/api/generate")  # URL Ollama API
 
 # --- Параметры обработки ---
 PIPELINE_BATCH_SIZE = 32               # Размер батча при обработке файлов
@@ -143,7 +143,7 @@ OPENROUTER_FREE_MODELS = [
 ]
 
 # Твой ключ OpenRouter
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # config.py (добавить в конец)
 
@@ -153,6 +153,6 @@ CLOUD_DATABASE_PATH = PROJECT_ROOT / "callback_cloud.db"
 # config.py (добавить в конец)
 
 # === Внутренний LLM API (Билайн) ===
-LLM_INTERNAL_API_KEY = "Qs9H8I1q4M2XEo23h11anlob2OSHBqj-h4fsLY4jnrY"
-LLM_INTERNAL_API_URL = "https://ta.apps.yd-m5-k51.vimpelcom.ru/api/v1/chat/completions"
-LLM_INTERNAL_MODEL = "Qwen3-32B" # Или "RuadaptQwen" или "QwQ"
+LLM_INTERNAL_API_KEY = os.getenv("LLM_INTERNAL_API_KEY", "")
+LLM_INTERNAL_API_URL = os.getenv("LLM_INTERNAL_API_URL", "")
+LLM_INTERNAL_MODEL = os.getenv("LLM_INTERNAL_MODEL", "Qwen3-32B") # Или "RuadaptQwen" или "QwQ"
