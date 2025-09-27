@@ -1,0 +1,12 @@
+# Удалить из Git, но оставить локально
+*.log
+*.tmp
+*.zip
+*.rar
+*.iso
+node_modules/
+dist/
+build/
+*.mp4
+*.mov
+*.avi
