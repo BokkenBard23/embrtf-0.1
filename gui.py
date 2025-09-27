@@ -58,8 +58,34 @@ def init_chat_db():
 def load_models():
     global MODEL
     logger.info(f"Загрузка embedding-модели: {config.EMBEDDING_MODEL_NAME}")
-    MODEL = SentenceTransformer(config.EMBEDDING_MODEL_NAME, device=str("cuda" if config.EMBEDDING_MODEL_DEVICE == "cuda" else "cpu"))
-    MODEL.max_seq_length = config.EMBEDDING_MODEL_MAX_LENGTH
+    
+    # Определяем устройство с fallback на CPU
+    device = "cpu"  # По умолчанию CPU для стабильности
+    if config.EMBEDDING_MODEL_DEVICE == "cuda":
+        try:
+            import torch
+            if torch.cuda.is_available():
+                device = "cuda"
+                logger.info("✅ Используем CUDA")
+            else:
+                logger.warning("⚠️ CUDA недоступна, используем CPU")
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка проверки CUDA: {e}, используем CPU")
+    
+    try:
+        MODEL = SentenceTransformer(config.EMBEDDING_MODEL_NAME, device=device)
+        MODEL.max_seq_length = config.EMBEDDING_MODEL_MAX_LENGTH
+        logger.info(f"✅ Модель загружена на устройстве: {device}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка загрузки модели: {e}")
+        # Fallback на CPU
+        try:
+            MODEL = SentenceTransformer(config.EMBEDDING_MODEL_NAME, device="cpu")
+            MODEL.max_seq_length = config.EMBEDDING_MODEL_MAX_LENGTH
+            logger.info("✅ Модель загружена на CPU (fallback)")
+        except Exception as e2:
+            logger.error(f"❌ Критическая ошибка загрузки модели: {e2}")
+            raise e2
 
 def load_faiss_indexes():
     global INDEXES, IDS
@@ -287,7 +313,7 @@ def save_qa_pair(question, theme, method, params, answer, context_summary):
             method,
             json.dumps(params, ensure_ascii=False),
             answer,
-            json.dumps(context_summary, ensure_ascii=False)
+            json.dumps(context_summary, ensure_ascii=False) if isinstance(context_summary, (list, dict)) else str(context_summary)
         ))
         CHAT_DB_CONN.commit()
         logger.info("✅ Вопрос-ответ сохранён в БД.")
@@ -398,6 +424,16 @@ def process_user_message(user_message):
             prompt = f"Задай 1-2 уточняющих вопроса по запросу: '{user_message}'"
         else:
             prompt = f"Ответь как аналитик call-центра: {user_message}"
+        
+        # Проверяем доступность Ollama
+        try:
+            test_response = requests.get('http://localhost:11434/api/tags', timeout=5)
+            if test_response.status_code != 200:
+                chat_history.insert(tk.END, f"Аналитик: Ollama недоступен (код {test_response.status_code})\n")
+                return
+        except requests.exceptions.RequestException:
+            chat_history.insert(tk.END, f"Аналитик: Ollama не запущен. Запустите: ollama serve\n")
+            return
         
         response = requests.post(
             'http://localhost:11434/api/generate',

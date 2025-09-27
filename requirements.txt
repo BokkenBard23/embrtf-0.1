@@ -1,9 +1,19 @@
 # requirements.txt
-sentence-transformers
-faiss-cpu
-ollama
-striprtf
-tqdm
-numpy
-torch
+
+# Основные зависимости (обязательные)
 requests
+numpy<2.0
+tqdm
+striprtf
+
+# Опциональные зависимости для полного функционала
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.0
+torch>=1.12.0
+ollama
+
+# Опциональные зависимости для работы с данными
+pandas>=1.5.0
+
+# Зависимости для GUI
+Pillow>=9.0.0
